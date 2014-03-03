@@ -21,6 +21,12 @@ class LearningSwitch(obect):
 		self.transparent = transparent
 		self.event = event
 
+		connection.addListeners(self)
+
+	def _handlePacketIn(self, event):
+		print(dir(event))
+		log.debug("Hello from LearningSwitch")
+
 class l2_learning (object):
   """
   Waits for OpenFlow switches to connect and makes them learning switches.
@@ -31,8 +37,11 @@ class l2_learning (object):
 
   def _handle_ConnectionUp (self, event):
     log.debug("Connection %s" % (event.connection,))
-    self.myswitch = LearningSwitch(event.connection, self.transparent, event)
+    self.myswitch = LearningSwitch(event.connection, self.transparent, event
 
+  def _handle_PacketIn (self, event):
+  	print(dir(event))
+  	log.debug("Hello from l2_learning!")
 
 def launch (transparent=False, hold_down=_flood_delay):
   """
