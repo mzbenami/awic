@@ -22,7 +22,10 @@ def _dpid_to_mac (dpid):
     return EthAddr("%012x" % (dpid & 0xffFFffFFffFF,))
 
 def isHostAddr(ipaddr):
-    return ipaddr.in_network(HOST_GATEWAY_NET, HOST_GATEWAY_MASK) and ipaddr != HOST_GATEWAY_IP
+    return isInHostNetwork(ipaddr) and ipaddr != HOST_GATEWAY_IP
+
+def isInHostNetwork(ipaddr):
+    return ipaddr.in_network(HOST_GATEWAY_NET, HOST_GATEWAY_MASK)
 
 def isBroadcastAddr(ipaddr):
     return str(ipaddr).split('.')[3] == '255'
@@ -61,8 +64,8 @@ class LearningSwitch(object):
         self.macTable = {}
         self.arpTable = {}
         self.addSwitch(connection)
-        self.arpTable[IPAddr('172.16.56.2'), 8000] = EthAddr('f2:60:dc:44:43:1a')
-        self.arpTable[IPAddr('172.16.56.2'), 9000] = EthAddr('6e:ae:15:49:db:0a')
+        self.arpTable[(IPAddr('172.16.56.2'), 8000)] = EthAddr('f2:60:dc:44:43:1a')
+        self.arpTable[(IPAddr('172.16.56.2'), 9000)] = EthAddr('7a:34:58:f0:76:95')
             
     def addSwitch(self, connection):
         connection.addListeners(self)
@@ -163,11 +166,15 @@ class LearningSwitch(object):
             if not isHostAddr(src_ip):
                 self.arpTable[src_ip] = self.Entry(packet.src, event.port)
             
-            if packet.type == pkt.ethernet.IP_TYPE and packet.payload.protocol == pkt.ipv4.TCP_PROTOCOL:
+            if packet.type == pkt.ethernet.IP_TYPE and (packet.payload.protocol == pkt.ipv4.TCP_PROTOCOL or packet.payload.protocol == pkt.ipv4.UDP_PROTOCOL):
+
+                if isHostAddr(src_ip):
+                    self.arpTable[(src_ip, packet.payload.next.srcport)] = packet.src
                 
                 dst_port = packet.payload.next.dstport
                 if (dst_ip, dst_port) in self.arpTable:
                      dst_mac = self.arpTable[(dst_ip, dst_port)]
+                     print "HOST-FLOW IP {}, HOST-FLOW PORT {}".format(dst_ip, dst_port)
                      if dst_mac in self.macTable:
                          port = self.macTable[dst_mac]
                      else:
@@ -175,19 +182,20 @@ class LearningSwitch(object):
                         
                      sendHostFlow(event, packet, dst_mac, port)
             elif packet.type == pkt.ethernet.ARP_TYPE:
-                if packet.payload.opcode == pkt.arp.REQUEST and packet.payload.protosrc == IPAddr(HOST_GATEWAY_IP):
+                if packet.payload.opcode == pkt.arp.REQUEST:
                    proxyArp(event, packet)
                 else:
                     send(event, packet, self.macTable[packet.dst])
-            elif packet.type == pkt.ethernet.ICMP_TYPE:
-                send(event, packet, self.macTable[packet.dst])
-            else:
-                drop(event)
 
             return
 
-        self.arpTable[src_ip] = self.Entry(packet.src, event.port)
+        if isHostAddr(src_ip) and packet.type == pkt.ethernet.IP_TYPE and (packet.payload.protocol == pkt.ipv4.TCP_PROTOCOL or packet.payload.protocol == pkt.ipv4.UDP_PROTOCOL) and packet.dst == _dpid_to_mac(event.connection.dpid):
+            self.arpTable[(src_ip, packet.payload.next.srcport)] = packet.src
+        else:
+            self.arpTable[src_ip] = self.Entry(packet.src, event.port)
+        
         dst_mac = packet.dst
+        
         if dst_mac in self.macTable:
             send(event, packet, self.macTable[dst_mac])
         elif isBroadcastAddr(dst_ip):
