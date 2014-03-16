@@ -12,13 +12,14 @@ log = core.getLogger()
 # Can be overriden on commandline.
 _flood_delay = 0
 
+# CONSTANTS, NEED TO BE READ FROM DATABASE
 HOST_GATEWAY_IP = '172.16.56.1'
 HOST_GATEWAY_NET = '172.16.56.0'
 HOST_GATEWAY_MASK = '24'
 FAKE_ARP_RESPONSE_MAC = 'ab:cd:ef:12:34:45'
 
+# global helper methods
 def _dpid_to_mac (dpid):
-    # Should maybe look at internal port MAC instead?
     return EthAddr("%012x" % (dpid & 0xffFFffFFffFF,))
 
 def isHostAddr(ipaddr):
@@ -42,6 +43,8 @@ def parseIPAddr(src_dst, packet):
     else:
         return packet.payload.dstip
 
+# An instance of this class registers as a listener
+# to one or more connections from openflow-enabled switches
 class LearningSwitch(object):
 
     class Entry(object):		
@@ -74,17 +77,8 @@ class LearningSwitch(object):
         self.arpTable[switch.ipaddr] = self.Entry(switch.mac, switch.port)
     
     def _handle_PacketIn(self, event):
-        self.lastPacketIn = event
-        packet = event.parsed
-        self.macTable[packet.src] = event.port
 
-        print("handle packet")
-        print packet.__dict__
-        print "------"
-        print packet.payload.__dict__
-        print "------"
-        print event.__dict__
-
+        # generic send, adding flow matching packet to the flow table
         def send(event, packet, outport):
             print "-----------SEND---------------"
             msg = of.ofp_flow_mod()
@@ -94,6 +88,7 @@ class LearningSwitch(object):
             print "!!!!!!!SEND_OUTPORT: " + str(outport) 
             event.connection.send(msg)
 
+        # generic flood, no flow is added to the flow table
         def flood(event):
             print "-----------FLOODING----------"
             msg = of.ofp_packet_out()
@@ -102,6 +97,7 @@ class LearningSwitch(object):
 
             event.connection.send(msg)
 
+        # flow destined to a host (container), destination mac address is rewritten
         def sendHostFlow(event, packet, mac, port):
             print "------------SEND HOST FLOW------------"
             msg = of.ofp_flow_mod()
@@ -112,6 +108,7 @@ class LearningSwitch(object):
             print "!!!!!!!SEND_HOSTFLOW_OUTPORT: " + str(port)                
             event.connection.send(msg)
         
+        # proxy ARP responses using dummy source mac
         def proxyArp(event, packet):
             print "---------PROXY ARP------------------"
             
@@ -137,6 +134,8 @@ class LearningSwitch(object):
             print "!!!!!!ARP_REPLY OUTPORT: " + str(event.port)
             event.connection.send(msg)
         
+        # drop by having no action set, and adding flow to the table
+        # duration (timeout values) for flow are optional
         def drop (event, duration = None):
             """
             Drops this packet and optionally installs a flow to continue
@@ -158,42 +157,63 @@ class LearningSwitch(object):
            # msg.in_port = event.port
            # event.connection.send(msg)
 
+        # packet enters here
+        self.lastEventIn = event
+        packet = event.parsed
+        
+        # update the layer 2 learning table
+        self.macTable[packet.src] = event.port
+
+        # print info about packet to console
+        print("handle packet")
+        print packet.__dict__
+        print "------"
+        print packet.payload.__dict__
+        print "------"
+        print event.__dict__
+        
         src_ip = parseIPAddr('src', packet)
         dst_ip = parseIPAddr('dst', packet)
         
+        # if packet is destined for container
         if isHostAddr(dst_ip):
 
-            if not isHostAddr(src_ip):
-                self.arpTable[src_ip] = self.Entry(packet.src, event.port)
-            
             if packet.type == pkt.ethernet.IP_TYPE and (packet.payload.protocol == pkt.ipv4.TCP_PROTOCOL or packet.payload.protocol == pkt.ipv4.UDP_PROTOCOL):
 
+                # allow return traffic for outgoing connections initiated by hosts
                 if isHostAddr(src_ip):
                     self.arpTable[(src_ip, packet.payload.next.srcport)] = packet.src
                 
                 dst_port = packet.payload.next.dstport
                 if (dst_ip, dst_port) in self.arpTable:
-                     dst_mac = self.arpTable[(dst_ip, dst_port)]
-                     print "HOST-FLOW IP {}, HOST-FLOW PORT {}".format(dst_ip, dst_port)
-                     if dst_mac in self.macTable:
-                         port = self.macTable[dst_mac]
-                     else:
-                         port = of.OFPP_FLOOD
+                    dst_mac = self.arpTable[(dst_ip, dst_port)]
+                    print "HOST-FLOW IP {}, HOST-FLOW PORT {}".format(dst_ip, dst_port)
+                    if dst_mac in self.macTable:
+                        port = self.macTable[dst_mac]
+                    else:
+                        port = of.OFPP_FLOOD
                         
-                     sendHostFlow(event, packet, dst_mac, port)
+                    sendHostFlow(event, packet, dst_mac, port)
+                else:
+                    drop(event) 
+
+            # proxy responses to arp requests on behalf of hosts
+            # send responses destined to hosts as normal
             elif packet.type == pkt.ethernet.ARP_TYPE:
                 if packet.payload.opcode == pkt.arp.REQUEST:
                    proxyArp(event, packet)
                 else:
-                    send(event, packet, self.macTable[packet.dst])
+                   send(event, packet, self.macTable[packet.dst])
 
             return
 
+        # non-host-bound traffic
+        
+        # if origin is host, allow return traffic
         if isHostAddr(src_ip) and packet.type == pkt.ethernet.IP_TYPE and (packet.payload.protocol == pkt.ipv4.TCP_PROTOCOL or packet.payload.protocol == pkt.ipv4.UDP_PROTOCOL) and packet.dst == _dpid_to_mac(event.connection.dpid):
             self.arpTable[(src_ip, packet.payload.next.srcport)] = packet.src
-        else:
-            self.arpTable[src_ip] = self.Entry(packet.src, event.port)
         
+        # normal layer 2 forwarding
         dst_mac = packet.dst
         
         if dst_mac in self.macTable:
@@ -203,22 +223,25 @@ class LearningSwitch(object):
         else:
             flood(event)
 
+    # listens to flow statistics from switches
     def _handle_FlowStatsReceived(self, event):
         print("flow stats received")
         self.flowstats = event
         for f in event.stats:
             if f.match.nw_proto == 1: print f.match.__dict__
 
+    # initiates a request for flow statistics for a specific switch
     def requestStats(self, connection):
         connection.send(of.ofp_stats_request(body=of.ofp_flow_stats_request()))
 
+    # initiates a request for flow statistics for all switches
     def requestAllStats(self):
         for con in self.connections:
             self.requestStats(con) 
 
 class l2_learning (object):
     """
-    Waits for OpenFlow switches to connect and makes them learning switches.
+    Waits for OpenFlow switches to connect and makes them learning switches
     """
     def __init__ (self, transparent):
         core.openflow.addListeners(self)
@@ -236,7 +259,7 @@ class l2_learning (object):
 
 def launch (transparent=False, hold_down=_flood_delay):
     """
-    Starts an L2 learning switch.
+    Starts module for controlling switches
     """
     try:
         global _flood_delay
