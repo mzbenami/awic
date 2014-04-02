@@ -68,7 +68,7 @@ class LearningSwitch(object):
         self.arpTable = {}
         self.addSwitch(connection)
         self.arpTable[(IPAddr('172.16.56.101'), 8000)] = EthAddr('32:af:a4:6d:58:db')
-        self.arpTable[(IPAddr('172.16.56.102'), 9000)] = EthAddr('da:07:b8:57:fb:94')
+        self.arpTable[(IPAddr('172.16.56.101'), 9000)] = EthAddr('86:23:1e:40:95:26')
             
     def addSwitch(self, connection):
         connection.addListeners(self)
@@ -188,7 +188,7 @@ class LearningSwitch(object):
                 if (dst_ip, dst_port) in self.arpTable:
                     dst_mac = self.arpTable[(dst_ip, dst_port)]
                     print "HOST-FLOW IP {}, HOST-FLOW PORT {}".format(dst_ip, dst_port)
-                    if dst_mac in self.macTable:
+                    if (event.dpid, dst_mac) in self.macTable:
                         port = self.macTable[(event.dpid, dst_mac)]
                     else:
                         port = of.OFPP_FLOOD
