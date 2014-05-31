@@ -22,6 +22,19 @@ Flush the local table, so that the RPDB moves on after finding it empty::
 
     ip route flush table local
 
-Finally, add a rule to the RPDB to check the local_copy only when receiving packets from eth0::
+Add a rule to the RPDB to check the local_copy only when receiving packets from eth0::
 
     ip rule add iif eth0 lookup local_copy priority 1
+
+Make sure to install a default route in the container's routing table::
+
+    ip route add default via <default gateway>
+
+Amazon AWS
+----------
+NAT rules
+
+
+
+Docker, OVS installation
+------------------------
