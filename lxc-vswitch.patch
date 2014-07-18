@@ -1,0 +1,66 @@
+From 72a6e16e3c0953ea12c305f2324e5acb6b310248 Mon Sep 17 00:00:00 2001
+From: Etan Zapinsky <etan.zapinsky@gmail.com>
+Date: Thu, 12 Dec 2013 10:59:52 -0500
+Subject: [PATCH 1/1] changes
+
+---
+ network.c | 36 ++++++++++++++++++++++++++----------
+ 1 file changed, 26 insertions(+), 10 deletions(-)
+
+diff --git a/src/lxc/network.c b/src/lxc/network.c
+index f7c9ce4..b639320 100644
+--- a/src/lxc/network.c
++++ b/src/lxc/network.c
+@@ -986,6 +986,9 @@ int lxc_bridge_attach(const char *bridge, const char *ifname)
+ {
+ 	int fd, index, err;
+ 	struct ifreq ifr;
++        struct stat sb;
++        char brdirname[22 + IFNAMSIZ + 1] = {0};
++        char ovscmd[20 + IFNAMSIZ * 2 + 1] = {0};
+ 
+ 	if (strlen(ifname) >= IFNAMSIZ)
+ 		return -EINVAL;
+@@ -994,16 +997,29 @@ int lxc_bridge_attach(const char *bridge, const char *ifname)
+ 	if (!index)
+ 		return -EINVAL;
+ 
+-	fd = socket(AF_INET, SOCK_STREAM, 0);
+-	if (fd < 0)
+-		return -errno;
+-
+-	strncpy(ifr.ifr_name, bridge, IFNAMSIZ);
+-	ifr.ifr_ifindex = index;
+-	err = ioctl(fd, SIOCBRADDIF, &ifr);
+-	close(fd);
+-	if (err)
+-		err = -errno;
++        snprintf(brdirname, 22 +IFNAMSIZ + 1, "/sys/class/net/%s/bridge", bridge);
++        if (stat(brdirname, &sb) == -1) {
++                if (errno == ENOENT) {
++                        snprintf(ovscmd, 20 + IFNAMSIZ * 2 + 1, "ovs-vsctl add-port %s %s", bridge, ifname);
++                        err = system(ovscmd);
++                } else {
++                        err = -EINVAL;
++                }
++        } else if (S_ISDIR(sb.st_mode)) {
++
++                fd = socket(AF_INET, SOCK_STREAM, 0);
++                if (fd < 0)
++                        return -errno;
++
++                strncpy(ifr.ifr_name, bridge, IFNAMSIZ);
++                ifr.ifr_ifindex = index;
++                err = ioctl(fd, SIOCBRADDIF, &ifr);
++                close(fd);
++                if (err)
++                        err = -errno;
++        } else {
++                err = -EINVAL;
++        }
+ 
+ 	return err;
+ }
+-- 
+1.8.2.3
+
