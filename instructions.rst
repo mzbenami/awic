@@ -16,9 +16,9 @@ Carrier Configuration
 =====================
 Software:
 
-Ubuntu 13.10 (64-bit)
-Docker, 0.8.1
-Open vSwitch, 1.10.2
+Ubuntu 13.10 (64-bit):
+Docker, 0.8.1:
+Open vSwitch, 1.10.2:
 
 Docker installation instructions: https://docs.docker.com/installation/ubuntulinux/#ubuntu-raring-1304-and-saucy-1310-64-bit
 
