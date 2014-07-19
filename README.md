@@ -3,3 +3,5 @@ This is the source code and installation instructions for the AWIC project condu
 Installation instructions can be found in 'instructions.rst'.
 
 Other useful reading is the semester final paper.
+
+Git respository at: https://github.com/mzbenami/awic
