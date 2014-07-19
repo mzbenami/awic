@@ -16,8 +16,8 @@ Carrier Configuration
 =====================
 Software:
 
-Ubuntu 13.10 (64-bit):
-Docker, 0.8.1:
+Ubuntu 13.10 (64-bit)
+Docker, 0.8.1
 Open vSwitch, 1.10.2:
 
 Docker installation instructions: https://docs.docker.com/installation/ubuntulinux/#ubuntu-raring-1304-and-saucy-1310-64-bit
@@ -81,6 +81,10 @@ Create VXLAN tunnel connecting two carriers, on both sides. It is important the 
 
 	sudo ovs-vsctl add-port <bridge name> vx1 -- set interface vx1 type=vxlan options:remote_ip=<remote IP address>
 
+
+Container Configuration
+=======================
+
 Container Configuration on Carrier VM
 -------------------------------------
 
@@ -95,12 +99,11 @@ See a list of active containers::
 Attach to a container::
 
 	docker attach <container name>
-	
+
 
 Container Routing Setup
-=======================
+-----------------------
 
-Insider the container.
 Assign an IP address to the containers eth0::
 	
 	ifconfig eth0 <address>/<mask>
