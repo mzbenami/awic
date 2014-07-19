@@ -4,7 +4,7 @@ Instructions
 Needs to be fleshed out. Will take from Etan's instructions and add our own.
 
 
-Host Routing Configuration
+Host Routing Configuration (Only for Phase 1 deployment on testbed laptop)
 ==========================
 
 Add a route to the host machine for the container subnet::
@@ -70,17 +70,16 @@ In a Phase 2 deployment, eth0 keeps it's IP address. The virtual interface creat
 
 Associate Docker with OVS::
 	
-	sudo service docker stop    		-- (kills any running instance of docker)
-	docker -d -b <OVS bridge name> &	-- (runs docker in daemon mode)
+	sudo service docker stop    			-- (kills any running instance of docker)
+	sudo docker -d -b <OVS bridge name> &	-- (runs docker in daemon mode)
 
-Start new one on ovs bridge::
+Add OpenFlow controller to OVS::
 
-    sudo dhclient -1 -v obr-dock
+	sudo ovs-vsctl set-controller <bridge name> tcp:<controller IP address>
 
-Setup proper netmask on host::
+Create VXLAN tunnel connecting two carriers, on both sides. It is important the the remote IP address is that of a regular address on the host (eth0 , for example), and not the host interface connected to the Open vSwitch (Phase 2 deployment only)::
 
-    sudo route -n add -net 172.16.0.0/16 -interface vmnet8 (virtual interface on host)
-
+	sudo ovs-vsctl add-port <bridge name> vx1 -- set interface vx1 type=vxlan options:remote_ip=<remote IP address>
 
 Container Configuration on Carrier VM
 -------------------------------------
@@ -135,19 +134,71 @@ IP Forwarding (transit routing) should be disabled::
 	echo '0' > /proc/sys/net/ipv4/ip_forward
 
 
+POX Controller Setup
+====================
+
+POX is the OpenFlow controller software that resides on the controller VM. In the tested setup, Python 2.7 is installed on the controller VM. To download POX::
+	
+	git clone http://github.com/noxrepo/pox
+
+To run POX, from the 'pox' directory::
+
+	./pox.py <custom module name> 				--in this case the custom module is called 'awic'
+
 Amazon AWS
 ==========
+
+Networking Design
+-----------------
+
+There should be two subnets carved out in the Amazon AWS network. One for management and control traffic, and the other for data plane traffic.
 
 Configure Management VM
 -----------------------
 
+The management VM on Amazon can be a micro instance as it only needs one interface on the management and control network. This interface should have a public IP associated with it, so that you can ssh into this box, and jump to other boxes from it using private addressing on the management network::
 
+	ifconfig eth0 <IP address on management subnet>/<mask>
 
 Configure non-gateway carrier VMs
 ---------------------------------
 
+The non-gateway carrier VMs should have two interfaces, one for the management/control subnet and one for the data plane subnet. In these instances, the data plane interfaces are used for VXLAN tunnel endpointing. Again, a micro instance may be used. Neither interface needs to be associated with a public IP address::
+
+	ifconfig eth0 <IP address on data plane subnet>/<mask>
+	ifconfig eth1 <IP address on management subnet>/<mask>
+
 Configure gateway/carrier VM
 -----------------------------
+
+The gateway VM is more complex. Like the other carrier VMs it should have two interfaces not associated with public IP addresses::
+
+	ifconfig eth0 <IP address on data plane subnet>/<mask>
+	ifconfig eth1 <IP address on management subnet>/<mask>
+
+However, because it is the gateway, it needs to have other sub-interfaces on the data-plane subnet, and associated with public IP addresses, that are then NAT'd back to their original public IP addresses. These public IP addresses are the ones assigned to the containers themselves. Because it hosts more than two IP addresses, it should be a medium EC2 instance. On the carrier/gateway::
+
+	ifconfig eth0:0 <IP address A on data plane subnet>/<mask>
+	ifconfig eth0:1 <IP address B on data plane subnet>/<mask>
+	ifconfig eth0:2 <IP address C on data plane subnet>/<mask>
+
+The gateway also provides the virtual nterface that all local and remote containers use as their default gateway. This interface is created when the OVS bridge is created (see above)::
+
+	ifconfig <interface created by OVS> <IP address on container subnet>subnet
+
+While these interface respond to ARP requests from the Amazon network, they are never actually hit by IP flows because the NAT is performed::
+
+	sudo iptables -t nat -A PREROUTING -d <private address A> -j DNAT --to <original public address A>
+	sudo iptables -t nat -A POSTROUTING -s <original public address A> -j SNAT --to <private address A>
+	etc.
+
+
+IP forwarding (transit routing) needs to be configured so that the gateway sends container-bound traffic over the VXLAN tunnels::
+
+	echo "1" > /proc/sys/net/ipv4/ip_forward
+
+
+
 
 
 
