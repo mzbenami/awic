@@ -2,6 +2,6 @@ This is the source code and installation instructions for the AWIC project condu
 
 Installation instructions can be found in 'instructions.rst'.
 
-Other useful reading is the semester final paper.
+Other useful reading is the semester final paper, "A Walk in the Clouds: A New PaaS Model Leveraging Software-Defined Networks"
 
 Git respository at: https://github.com/mzbenami/awic
